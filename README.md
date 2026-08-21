@@ -3,6 +3,25 @@ Script to snipe a rare product from pulsedmedia
 
 # pm_snipe.py - Installation & Usage on a Linux Server
 
+## What this tool does
+
+`pm_snipe.py` watches a list of Pulsed Media products for you and, as
+soon as one becomes available, orders it automatically on your behalf.
+
+It can only pay with **account credit already available on your Pulsed
+Media account** - PayPal is not supported. If there isn't enough credit
+to cover the order, the order cannot go through; 
+
+## Disclaimer
+
+This is an unofficial, third-party tool and is not affiliated with or
+endorsed by Pulsed Media. It logs in with your own session cookie and
+places real orders on your behalf. **Use it at your own risk** - no
+liability is assumed for wrong orders, account issues, or any other
+consequences of running it.
+
+# pm_snipe.py - Installation & Usage on a Linux Server
+
 Quick guide for a standard Debian/Ubuntu system (root or with sudo).
 
 ## 1. Install system packages
