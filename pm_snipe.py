@@ -9,10 +9,15 @@ REQUIREMENTS
 QUICK START
     python3 pm_snipe.py --init      ask which pid(s)/cycle(s) to snipe,
                                     create watchlist.json from that
-    python3 pm_snipe.py --setup     store session cookie and seedbox username
+    python3 pm_snipe.py --setup     store session cookie
     python3 pm_snipe.py --probe     check what is currently in stock
     python3 pm_snipe.py --dry-run   full rehearsal (see below)
     python3 pm_snipe.py             live
+
+SEEDBOX USERNAME
+    A random username (3-8 lowercase letters) is generated for each run and
+    used for every order placed during it. Pass --username to force a
+    specific one instead.
 
 WATCHLIST (watchlist.json) - built by --init, two fields per product:
     [
@@ -75,6 +80,7 @@ import json
 import os
 import random
 import re
+import string
 import time
 import traceback
 from datetime import datetime
@@ -88,7 +94,6 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 # The author's affiliate id, thanks for using it
 AFFILIATE_ID = "3148"
 COOKIE_FILE = Path(".pm_cookie")
-USER_FILE = Path(".pm_username")
 
 VALID_CYCLES = ("monthly", "quarterly", "semiannually",
                 "annually", "biennially", "triennially")
@@ -284,29 +289,10 @@ def get_session(ask_again=False):
     sys.exit("Invalid several times - aborting.")
 
 
-def get_username(override=None, ask_again=False):
-    if override:
-        store(USER_FILE, override, quiet=True)
-        return override
-    if not ask_again and USER_FILE.exists():
-        name = USER_FILE.read_text().strip()
-        if name:
-            return name
-    if not sys.stdin.isatty():
-        sys.exit("No seedbox username stored.\n"
-                 "Run once interactively:  python3 pm_snipe.py --setup\n"
-                 "Or pass it directly:     --username YOURNAME")
-    print("\nDesired username for the seedbox. It goes into the 'Username'\n"
-          "field of the product configuration.")
-    while True:
-        try:
-            name = input("Username> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            sys.exit("\nAborted.")
-        if name:
-            store(USER_FILE, name)
-            return name
-        print("Must not be empty.")
+def random_username():
+    """3-8 lowercase letters, picked fresh for each run."""
+    length = random.randint(3, 8)
+    return "".join(random.choice(string.ascii_lowercase) for _ in range(length))
 
 
 def set_affiliate(s, aff):
@@ -771,8 +757,10 @@ def main():
     p.add_argument("--watchlist", default="watchlist.json")
     p.add_argument("--init", action="store_true", help="create watchlist.json")
     p.add_argument("--setup", action="store_true",
-                   help="ask for cookie and username again")
-    p.add_argument("--username", help="set the seedbox username")
+                   help="ask for the session cookie again")
+    p.add_argument("--username",
+                   help="seedbox username (default: random, 3-8 lowercase "
+                        "letters)")
     p.add_argument("--probe", action="store_true",
                    help="check availability once, buy nothing")
     p.add_argument("--dry-run", action="store_true",
@@ -806,7 +794,6 @@ def main():
 
     if args.setup:
         get_session(ask_again=True)
-        get_username(ask_again=True)
         print("\nDone. Next step: python3 pm_snipe.py --probe")
         return
 
@@ -822,7 +809,7 @@ def main():
         return
 
     s = get_session()
-    username = get_username(args.username)
+    username = args.username or random_username()
     log(f"Seedbox username: {username}")
     set_affiliate(s, "" if args.no_affiliate else args.affiliate)
 
