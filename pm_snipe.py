@@ -7,12 +7,12 @@ REQUIREMENTS
         pip3 install requests beautifulsoup4
 
 QUICK START
-    python3 pm_snipe.py --init      ask which pid(s)/cycle(s) to snipe,
-                                    create watchlist.json from that
-    python3 pm_snipe.py --setup     store session cookie
-    python3 pm_snipe.py --probe     check what is currently in stock
-    python3 pm_snipe.py --dry-run   full rehearsal (see below)
-    python3 pm_snipe.py             live
+    python3 pm_snipe.py --init      create watchlist.json
+    python3 pm_snipe.py --probe     check public catalog availability
+    python3 pm_snipe.py --dry-run   request quotes, place no orders
+    python3 pm_snipe.py             order with a private order key
+    python3 pm_snipe.py --legacy-cookie-checkout --setup
+                                    set up the original cookie-based mode
 
 SEEDBOX USERNAME
     A random username (3-8 lowercase letters) is generated for each run and
@@ -30,19 +30,19 @@ WATCHLIST (watchlist.json) - built by --init, two fields per product:
     remove, or reorder products later.
 
 --dry-run
-    Actually puts the product in the cart, loads the checkout page, applies
-    account credit and prints the finished order POST - but does NOT submit
-    it. The cart is emptied afterwards. Without filling the cart WHMCS never
-    renders a checkout page, so the credit step could not be verified.
+    In API mode, requests a quote only; it does not submit an order or
+    charge the account. In legacy cookie mode, it fills the cart and
+    checkout form without submitting the final order.
 
-LOGIN
-    No automatic login - Pulsed Media uses a captcha. Log in once in your
-    browser and hand the session cookie to the script (--setup). The script
-    does not bypass any captcha, it continues inside your existing session.
+LOGIN (legacy cookie mode only)
+    The default API mode needs a separate order key, not a browser cookie.
+    For legacy mode, log in once in your browser and provide the session
+    cookie with --legacy-cookie-checkout --setup.
 
 PAYMENT
-    Orders are paid from account credit only. If the credit cannot be
-    applied, nothing is ordered and the cart is left filled for you.
+    The API creates an invoice; existing credit is applied according to
+    Pulsed Media's billing rules, but payment is not verified here.
+    Legacy cookie mode requires credit at checkout.
 
 The script only ever connects to pulsedmedia.com.
 """
@@ -751,10 +751,165 @@ def load_watchlist(path):
 # Main
 # --------------------------------------------------------------------------
 
+# API ordering uses a separate order key. The original checkout path
+# below remains available when explicitly selected.
+ORDER_URL = "https://pulsedmedia.com/remote/pmapi-order.php"
+CATALOG_URL = "https://pulsedmedia.com/data/v1/products.json"
+
+
+def load_order_key(path):
+    path = Path(path)
+    if path.stat().st_mode & 0o077:
+        raise ValueError("Order key file must be mode 0600")
+    key = path.read_text().strip()
+    if not key or "\n" in key or "\r" in key or any(c.isspace() for c in key):
+        raise ValueError("Invalid order key file")
+    return key
+
+
+def _api_post(session, key, body):
+    return session.post(ORDER_URL, json=body, headers={"X-API-Key": key},
+                        timeout=20, allow_redirects=False)
+
+
+def api_quote(session, key, pid, cycle, username):
+    body = {"pid": pid, "billingcycle": cycle}
+    response = _api_post(session, key, body)
+    if response.status_code == 422:
+        needs = response.json().get("product_needs", {})
+        fields = needs.get("customfields", []) if isinstance(needs, dict) else []
+        if (isinstance(fields, list) and all(isinstance(x, dict) for x in fields)
+                and any(x.get("name") == "Username" and x.get("required") for x in fields)
+                and not any(x.get("required") and x.get("name") != "Username" for x in fields)):
+            body["customfields"] = {"Username": username}
+            response = _api_post(session, key, body)
+    if response.status_code != 200:
+        raise ValueError(f"Quote unavailable (HTTP {response.status_code})")
+    answer = response.json()
+    quote = answer.get("quote", {})
+    if (int(quote.get("pid", 0)) != pid or quote.get("billing_cycle") != cycle
+            or not quote.get("product") or not quote.get("currency")):
+        raise ValueError("Quote product, cycle or currency mismatch")
+    from decimal import Decimal, InvalidOperation
+    try:
+        amount = Decimal(str(quote["first_payment"]))
+    except (KeyError, InvalidOperation, TypeError):
+        raise ValueError("Invalid quote amount") from None
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("Invalid quote amount")
+    needs = answer.get("product_needs", {})
+    if not isinstance(needs, dict):
+        raise ValueError("Unrecognized product requirements")
+    for field in ("customfields", "configoptions"):
+        items = needs.get(field, [])
+        if not isinstance(items, list) or any(not isinstance(x, dict) for x in items):
+            raise ValueError("Unrecognized product requirements")
+        if any(x.get("required") and (field != "customfields" or x.get("name") != "Username") for x in items):
+            raise ValueError("Unsupported required product option")
+    if any(x.get("name") == "Username" for x in needs.get("customfields", [])):
+        body["customfields"] = {"Username": username}
+    return quote, body
+
+
+def _save_order_state(path, state):
+    import tempfile
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".pm-order-")
+    try:
+        with os.fdopen(fd, "w") as out:
+            json.dump(state, out)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def api_confirm(session, key, body, quote, state_path):
+    from decimal import Decimal, InvalidOperation
+    import fcntl
+    try:
+        amount = Decimal(str(quote["first_payment"]))
+    except (KeyError, InvalidOperation, TypeError):
+        raise ValueError("Invalid quote amount") from None
+    if not amount.is_finite() or amount < 0 or not quote.get("currency"):
+        raise ValueError("Invalid quote amount or currency")
+    path = Path(state_path)
+    lock_path = path.with_suffix(path.suffix + '.lock')
+    with open(lock_path, 'a') as lock:
+        os.fchmod(lock.fileno(), 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if path.exists():
+            raise ValueError("Previous order attempt requires reconciliation")
+        _save_order_state(path, {"status": "pending", "pid": body["pid"]})
+        confirm = dict(body, confirm=True, accept_tos=True,
+                       expect_first_payment=str(quote["first_payment"]),
+                       expect_currency=quote["currency"])
+        try:
+            response = _api_post(session, key, confirm)
+            if response.status_code != 201:
+                raise ValueError(f"Confirm response HTTP {response.status_code}; check invoices")
+            result = response.json()
+            if not result.get("order_id") or not result.get("invoice_id"):
+                raise ValueError("Confirm lacks order/invoice ID; check invoices")
+            _save_order_state(path, {"status": "ordered", "pid": body["pid"],
+                                     "order_id": result["order_id"], "invoice_id": result["invoice_id"]})
+            return result["order_id"], result["invoice_id"]
+        except (requests.RequestException, ValueError, KeyError):
+            raise RuntimeError("Order outcome uncertain; check account before retrying") from None
+
+
+def api_run(args, watchlist):
+    if args.buy_all:
+        raise ValueError("--buy-all is not supported in API mode; reconcile each order first")
+    if not args.dry_run and Path("pm_order_state.json").exists():
+        raise RuntimeError("Previous API order attempt requires reconciliation")
+    key = load_order_key(args.order_key_file)
+    session = requests.Session()
+    username = args.username or random_username()
+    pending = list(watchlist)
+    while pending:
+        if Path("pm_order_state.json").exists():
+            raise RuntimeError("Previous API order attempt requires reconciliation")
+        try:
+            response = session.get(CATALOG_URL, timeout=20, allow_redirects=False)
+            response.raise_for_status()
+            catalog = {int(p["id"]): p for p in response.json()["products"]}
+            for entry in list(pending):
+                pid, cycle = entry["pid"], entry["cycle"]
+                product = catalog.get(pid, {})
+                if not product.get("available") or cycle not in product.get("billing_cycles", {}):
+                    continue
+                try:
+                    quote, body = api_quote(session, key, pid, cycle, username)
+                except (requests.RequestException, ValueError):
+                    continue
+                if quote["product"] != product["name"]:
+                    raise ValueError("Quoted product differs from catalog")
+                log(f"pid {pid}: quote {quote['first_payment']} {quote['currency']} (invoice payment not verified)")
+                if args.dry_run:
+                    continue
+                order, invoice = api_confirm(session, key, body, quote, Path("pm_order_state.json"))
+                log(f"Order {order}, invoice {invoice} created; payment not verified")
+                pending.remove(entry)
+                if not args.buy_all:
+                    return
+        except (requests.RequestException, ValueError):
+            log("API check failed; inspect quote and account before live ordering")
+        if args.dry_run:
+            log("Dry-run complete; quote only, no order submitted")
+            return
+        time.sleep(max(10.0, args.interval))
+
+
 def main():
     p = argparse.ArgumentParser(
         description="Stock monitor and auto-order tool for Pulsed Media.")
     p.add_argument("--watchlist", default="watchlist.json")
+    p.add_argument("--order-key-file", default=".pm_order_key",
+                   help="private file containing the Pulsed Media order key")
+    p.add_argument("--legacy-cookie-checkout", action="store_true",
+                   help="use original cookie checkout")
     p.add_argument("--init", action="store_true", help="create watchlist.json")
     p.add_argument("--setup", action="store_true",
                    help="ask for the session cookie again")
@@ -789,16 +944,28 @@ def main():
         path.write_text(json.dumps(entries, indent=2) + "\n")
         print(f"\n{path} created:\n")
         print(path.read_text())
-        print("Order in the file = processing order. Next: --setup")
+        print("Order in the file = processing order. Next: create an order key")
         return
 
     if args.setup:
+        if not args.legacy_cookie_checkout:
+            sys.exit('--setup is only for --legacy-cookie-checkout. Create an order key instead.')
         get_session(ask_again=True)
         print("\nDone. Next step: python3 pm_snipe.py --probe")
         return
 
+    if args.probe and not args.legacy_cookie_checkout:
+        watchlist = load_watchlist(path)
+        r = requests.get(CATALOG_URL, timeout=20, allow_redirects=False)
+        r.raise_for_status()
+        products = {int(p['id']): p for p in r.json()['products']}
+        for e in watchlist:
+            product = products.get(e['pid'], {})
+            log(f"pid {e['pid']}: {'IN STOCK' if product.get('available') else 'out of stock'}")
+        return
     watchlist = load_watchlist(path)
-
+    if not args.legacy_cookie_checkout and not args.probe:
+        return api_run(args, watchlist)
     if args.probe:
         s = new_session()
         for e in watchlist:

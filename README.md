@@ -1,26 +1,41 @@
 # pm_sniper
 Script to snipe a rare product from pulsedmedia
 
+## API ordering (default)
+
+Create an **order key** in the Pulsed Media client area under Services → API access → Create an order key (https://pulsedmedia.com/clients/index.php?m=pmapi). A read-only key cannot order. Save only the key, not `PM_API_KEY=`, in `.pm_order_key` with mode 0600, outside version control. For example, create the file with `umask 077; install -m 600 /dev/null .pm_order_key`, then enter the key using a local editor. Never paste it into chat, shell history, or a repository. Set `--order-key-file /secure/path` to use another location.
+
+The existing `--init` watchlist chooses product IDs and billing cycles. `--probe` checks the public catalog without an order key. `--dry-run` requests quotes without confirming. The default run uses the order key to request a quote, checks its product and cycle against the catalog, then sends `confirm:true`, `accept_tos:true`, and the quoted price and currency as expectations. The API creates an invoice; account credit may apply, but the API does not itself collect payment or verify the invoice was paid.
+
+A confirmation request that times out or returns an unexpected response may already have placed an order. The script writes `pm_order_state.json` before confirmation and refuses to submit another order while it exists. Check the account's orders and invoices before reconciling that file. The API limits orders to five unpaid and five in 24 hours. Do not run multiple instances against one watchlist. `--buy-all` is not supported in API mode until per-product reconciliation is available.
+
+`--legacy-cookie-checkout` retains the original website checkout and affiliate behavior, including `--setup`; the original instructions below apply only in that mode. In legacy mode, use `--legacy-cookie-checkout --setup` to save a session, then `--legacy-cookie-checkout` on subsequent runs. Pulsed Media's order API documents no affiliate field, rejects URL parameters, and quote-only testing rejected `aff` in JSON. Website affiliate cookies are not proven to attribute API orders. The existing affiliate code and links are intentionally unchanged.
+
+Run `python3 -m unittest -v` for offline tests. No live order is sent by the tests.
+
+
 # pm_snipe.py - Installation & Usage on a Linux Server
 
 ## What this tool does
 
-`pm_snipe.py` watches a list of Pulsed Media products for you and, as
-soon as one becomes available, orders it automatically on your behalf.
-
-It can only pay with **account credit already available on your Pulsed
-Media account** - PayPal is not supported. If there isn't enough credit
-to cover the order, the order cannot go through; 
+`pm_snipe.py` watches Pulsed Media products and places orders through
+Pulsed Media's order API by default. The older cookie checkout remains
+available with `--legacy-cookie-checkout`. API orders create invoices;
+account credit may apply, but payment is not verified by this script.
 
 ## Disclaimer
 
 This is an unofficial, third-party tool and is not affiliated with or
-endorsed by Pulsed Media. It logs in with your own session cookie and
-places real orders on your behalf. **Use it at your own risk** - no
-liability is assumed for wrong orders, account issues, or any other
-consequences of running it.
+endorsed by Pulsed Media. API mode uses your order key; legacy mode uses
+your session cookie. It can place real orders on your behalf. **Use it at
+your own risk** - no liability is assumed for wrong orders, account issues,
+or any other consequences of running it.
 
-# pm_snipe.py - Installation & Usage on a Linux Server
+# pm_snipe.py - Original cookie-checkout guide (legacy mode only)
+
+The steps below use `--legacy-cookie-checkout` to retain the original
+website checkout. For the default API mode, follow the API ordering section
+above instead.
 
 Quick guide for a standard Debian/Ubuntu system (root or with sudo).
 
@@ -95,7 +110,7 @@ order).
 ## 7. Store the session cookie and seedbox username
 
 ```bash
-python3 pm_snipe.py --setup
+python3 pm_snipe.py --legacy-cookie-checkout --setup
 ```
 
 Asks in turn for:
@@ -133,7 +148,7 @@ are HttpOnly and won't show up there.
 Check availability once (buys nothing):
 
 ```bash
-python3 pm_snipe.py --probe
+python3 pm_snipe.py --legacy-cookie-checkout --probe
 ```
 
 Full rehearsal: really puts the product in the cart, fills out the
@@ -142,13 +157,13 @@ application, but does **not** submit the final order. The cart is
 emptied automatically afterwards.
 
 ```bash
-python3 pm_snipe.py --dry-run
+python3 pm_snipe.py --legacy-cookie-checkout --dry-run
 ```
 
 ## 9. Live operation
 
 ```bash
-python3 pm_snipe.py
+python3 pm_snipe.py --legacy-cookie-checkout
 ```
 
 Watches the products from `watchlist.json` at the chosen interval
@@ -163,7 +178,7 @@ For cron or systemd you don't need an activated venv - just point
 directly at the venv's Python binary:
 
 ```bash
-/root/order_pm/venv/bin/python3 /root/order_pm/pm_snipe.py
+/root/order_pm/venv/bin/python3 /root/order_pm/pm_snipe.py --legacy-cookie-checkout
 ```
 
 For a simple interactive background session, e.g. with `screen`:
@@ -176,7 +191,7 @@ screen -S pm_snipe
 Inside the screen session, activate the venv and start it:
 
 ```bash
-source venv/bin/activate && python3 pm_snipe.py
+source venv/bin/activate && python3 pm_snipe.py --legacy-cookie-checkout
 ```
 
 Detach with `Ctrl+A`, then `D`. Reattach with:
