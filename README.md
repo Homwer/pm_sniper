@@ -1,6 +1,19 @@
 # pm_sniper
 Script to snipe a rare product from pulsedmedia
 
+## API ordering (default)
+
+Create an **order key** in the Pulsed Media client area under Services → API access → Create an order key (https://pulsedmedia.com/clients/index.php?m=pmapi). A read-only key cannot order. Save only the key, not `PM_API_KEY=`, in `.pm_order_key` with mode 0600, outside version control. For example, create the file with `umask 077; install -m 600 /dev/null .pm_order_key`, then enter the key using a local editor. Never paste it into chat, shell history, or a repository. Set `--order-key-file /secure/path` to use another location.
+
+The existing `--init` watchlist chooses product IDs and billing cycles. `--probe` checks the public catalog without an order key. `--dry-run` requests quotes without confirming. The default run uses the order key to request a quote, checks its product and cycle against the catalog, then sends `confirm:true`, `accept_tos:true`, and the quoted price and currency as expectations. The API creates an invoice; account credit may apply, but the API does not itself collect payment or verify the invoice was paid.
+
+A confirmation request that times out or returns an unexpected response may already have placed an order. The script writes `pm_order_state.json` before confirmation and refuses to submit another order while it exists. Check the account's orders and invoices before reconciling that file. The API limits orders to five unpaid and five in 24 hours. Do not run multiple instances against one watchlist. `--buy-all` is not supported in API mode until per-product reconciliation is available.
+
+`--legacy-cookie-checkout` retains the original website checkout and affiliate behavior, including `--setup`; the original instructions below apply only in that mode. In legacy mode, use `--legacy-cookie-checkout --setup` to save a session, then `--legacy-cookie-checkout` on subsequent runs. Pulsed Media's order API documents no affiliate field, rejects URL parameters, and quote-only testing rejected `aff` in JSON. Website affiliate cookies are not proven to attribute API orders. The existing affiliate code and links are intentionally unchanged.
+
+Run `python3 -m unittest -v` for offline tests. No live order is sent by the tests.
+
+
 # pm_snipe.py - Installation & Usage on a Linux Server
 
 ## What this tool does

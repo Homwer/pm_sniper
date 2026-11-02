@@ -1,0 +1,10 @@
+.pm_order_key
+.pm_cookie
+.pm_username
+pm_order_state.json
+pm_order_state.json.lock
+watchlist.json
+pm_snipe.log
+debug/
+__pycache__/
+.venv/
