@@ -31,7 +31,11 @@ your session cookie. It can place real orders on your behalf. **Use it at
 your own risk** - no liability is assumed for wrong orders, account issues,
 or any other consequences of running it.
 
-# pm_snipe.py - Installation & Usage on a Linux Server
+# pm_snipe.py - Original cookie-checkout guide (legacy mode only)
+
+The steps below use `--legacy-cookie-checkout` to retain the original
+website checkout. For the default API mode, follow the API ordering section
+above instead.
 
 Quick guide for a standard Debian/Ubuntu system (root or with sudo).
 
@@ -106,7 +110,7 @@ order).
 ## 7. Store the session cookie and seedbox username
 
 ```bash
-python3 pm_snipe.py --setup
+python3 pm_snipe.py --legacy-cookie-checkout --setup
 ```
 
 Asks in turn for:
@@ -144,7 +148,7 @@ are HttpOnly and won't show up there.
 Check availability once (buys nothing):
 
 ```bash
-python3 pm_snipe.py --probe
+python3 pm_snipe.py --legacy-cookie-checkout --probe
 ```
 
 Full rehearsal: really puts the product in the cart, fills out the
@@ -153,13 +157,13 @@ application, but does **not** submit the final order. The cart is
 emptied automatically afterwards.
 
 ```bash
-python3 pm_snipe.py --dry-run
+python3 pm_snipe.py --legacy-cookie-checkout --dry-run
 ```
 
 ## 9. Live operation
 
 ```bash
-python3 pm_snipe.py
+python3 pm_snipe.py --legacy-cookie-checkout
 ```
 
 Watches the products from `watchlist.json` at the chosen interval
@@ -174,7 +178,7 @@ For cron or systemd you don't need an activated venv - just point
 directly at the venv's Python binary:
 
 ```bash
-/root/order_pm/venv/bin/python3 /root/order_pm/pm_snipe.py
+/root/order_pm/venv/bin/python3 /root/order_pm/pm_snipe.py --legacy-cookie-checkout
 ```
 
 For a simple interactive background session, e.g. with `screen`:
@@ -187,7 +191,7 @@ screen -S pm_snipe
 Inside the screen session, activate the venv and start it:
 
 ```bash
-source venv/bin/activate && python3 pm_snipe.py
+source venv/bin/activate && python3 pm_snipe.py --legacy-cookie-checkout
 ```
 
 Detach with `Ctrl+A`, then `D`. Reattach with:
