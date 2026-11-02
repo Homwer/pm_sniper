@@ -7,12 +7,12 @@ REQUIREMENTS
         pip3 install requests beautifulsoup4
 
 QUICK START
-    python3 pm_snipe.py --init      ask which pid(s)/cycle(s) to snipe,
-                                    create watchlist.json from that
-    python3 pm_snipe.py --setup     store session cookie
-    python3 pm_snipe.py --probe     check what is currently in stock
-    python3 pm_snipe.py --dry-run   full rehearsal (see below)
-    python3 pm_snipe.py             live
+    python3 pm_snipe.py --init      create watchlist.json
+    python3 pm_snipe.py --probe     check public catalog availability
+    python3 pm_snipe.py --dry-run   request quotes, place no orders
+    python3 pm_snipe.py             order with a private order key
+    python3 pm_snipe.py --legacy-cookie-checkout --setup
+                                    set up the original cookie-based mode
 
 SEEDBOX USERNAME
     A random username (3-8 lowercase letters) is generated for each run and
@@ -30,19 +30,19 @@ WATCHLIST (watchlist.json) - built by --init, two fields per product:
     remove, or reorder products later.
 
 --dry-run
-    Actually puts the product in the cart, loads the checkout page, applies
-    account credit and prints the finished order POST - but does NOT submit
-    it. The cart is emptied afterwards. Without filling the cart WHMCS never
-    renders a checkout page, so the credit step could not be verified.
+    In API mode, requests a quote only; it does not submit an order or
+    charge the account. In legacy cookie mode, it fills the cart and
+    checkout form without submitting the final order.
 
-LOGIN
-    No automatic login - Pulsed Media uses a captcha. Log in once in your
-    browser and hand the session cookie to the script (--setup). The script
-    does not bypass any captcha, it continues inside your existing session.
+LOGIN (legacy cookie mode only)
+    The default API mode needs a separate order key, not a browser cookie.
+    For legacy mode, log in once in your browser and provide the session
+    cookie with --legacy-cookie-checkout --setup.
 
 PAYMENT
-    Orders are paid from account credit only. If the credit cannot be
-    applied, nothing is ordered and the cart is left filled for you.
+    The API creates an invoice; existing credit is applied according to
+    Pulsed Media's billing rules, but payment is not verified here.
+    Legacy cookie mode requires credit at checkout.
 
 The script only ever connects to pulsedmedia.com.
 """

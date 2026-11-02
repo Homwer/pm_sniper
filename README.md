@@ -18,20 +18,18 @@ Run `python3 -m unittest -v` for offline tests. No live order is sent by the tes
 
 ## What this tool does
 
-`pm_snipe.py` watches a list of Pulsed Media products for you and, as
-soon as one becomes available, orders it automatically on your behalf.
-
-It can only pay with **account credit already available on your Pulsed
-Media account** - PayPal is not supported. If there isn't enough credit
-to cover the order, the order cannot go through; 
+`pm_snipe.py` watches Pulsed Media products and places orders through
+Pulsed Media's order API by default. The older cookie checkout remains
+available with `--legacy-cookie-checkout`. API orders create invoices;
+account credit may apply, but payment is not verified by this script.
 
 ## Disclaimer
 
 This is an unofficial, third-party tool and is not affiliated with or
-endorsed by Pulsed Media. It logs in with your own session cookie and
-places real orders on your behalf. **Use it at your own risk** - no
-liability is assumed for wrong orders, account issues, or any other
-consequences of running it.
+endorsed by Pulsed Media. API mode uses your order key; legacy mode uses
+your session cookie. It can place real orders on your behalf. **Use it at
+your own risk** - no liability is assumed for wrong orders, account issues,
+or any other consequences of running it.
 
 # pm_snipe.py - Installation & Usage on a Linux Server
 
